@@ -1,0 +1,16 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #111827;
+  color: white;
+}
+
+#app {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 2rem;
+}
+
+h1 {
+  color: #6ee7b7;
+}
