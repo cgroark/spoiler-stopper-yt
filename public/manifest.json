@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Spoiler Stopper",
+  "description": "Prevent YouTube spoilers by blurring thumbnails and hiding titles.",
+  "version": "0.0.1",
+
+  "permissions": ["storage"],
+
+  "host_permissions": [
+    "https://*.youtube.com/*"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": ["https://*.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ]
+}
