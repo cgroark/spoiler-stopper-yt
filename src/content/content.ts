@@ -2,29 +2,53 @@ import './content.css';
 
 console.log('🛡️ Spoiler Shield loaded!');
 
+function addOverlay(card: HTMLElement) {
+  if (card.querySelector('.spoiler-shield-overlay')) {
+    return;
+  }
+
+  const overlay = document.createElement('div');
+
+  overlay.className = 'spoiler-shield-overlay';
+
+  overlay.innerHTML = `
+    <div class="spoiler-shield-message">
+      <div>🛡️ Spoiler Hidden</div>
+      <small>Click to reveal</small>
+    </div>
+  `;
+
+  overlay.addEventListener('click', () => {
+    overlay.remove();
+  });
+
+  card.appendChild(overlay);
+}
+
+function protectVideo(card: HTMLElement) {
+  if (card.classList.contains('spoiler-shield-processed')) {
+    return;
+  }
+
+  card.classList.add('spoiler-shield-processed');
+
+  addOverlay(card);
+}
+
 function processVideos() {
   const cards = document.querySelectorAll<HTMLElement>(
     'ytd-rich-item-renderer'
   );
 
   cards.forEach((card) => {
-    const thumbnail = card.querySelector<HTMLElement>(
-      '.ytThumbnailViewModelImage'
-    );
-
-    if (thumbnail && !thumbnail.classList.contains('spoiler-shield-processed')) {
-      thumbnail.classList.add(
-        'spoiler-shield-blur',
-        'spoiler-shield-processed'
-      );
-    }
+    protectVideo(card);
   });
 }
 
 // Initial scan
 processVideos();
 
-// Watch for new videos being added
+// Watch for infinite scroll additions
 const observer = new MutationObserver(() => {
   processVideos();
 });

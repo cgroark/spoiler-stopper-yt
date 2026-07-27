@@ -1,4 +1,33 @@
-.spoiler-shield-blur {
-  filter: blur(18px);
-  transition: filter 0.2s ease;
+ytd-rich-item-renderer {
+  position: relative !important;
+}
+
+.spoiler-shield-overlay {
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: rgba(0, 0, 0, 0.75);
+
+  color: white;
+
+  z-index: 10000;
+
+  cursor: pointer;
+}
+
+.spoiler-shield-message {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.spoiler-shield-message small {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  opacity: 0.8;
 }
