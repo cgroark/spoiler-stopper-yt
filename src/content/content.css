@@ -1,3 +1,6 @@
-body {
+div#content {
   outline: 4px solid lime !important;
+}
+img {
+  border: solid red 2px;
 }
