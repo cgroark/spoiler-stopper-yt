@@ -1,6 +1,4 @@
-div#content {
-  outline: 4px solid lime !important;
-}
-img {
-  border: solid red 2px;
+.spoiler-shield-blur {
+  filter: blur(18px);
+  transition: filter 0.2s ease;
 }
