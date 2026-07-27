@@ -2,6 +2,14 @@ ytd-rich-item-renderer {
   position: relative !important;
 }
 
+/* Blur the actual YouTube card content */
+#content.spoiler-shield-content-blurred {
+  filter: blur(18px);
+  transform: scale(1.02);
+  transition: filter 0.2s ease;
+}
+
+/* Overlay sits ABOVE the blurred content */
 .spoiler-shield-overlay {
   position: absolute;
   inset: 0;
@@ -10,9 +18,7 @@ ytd-rich-item-renderer {
   align-items: center;
   justify-content: center;
 
-  background: rgba(0, 0, 0, 0.75);
-
-  color: white;
+  background: rgba(0, 0, 0, 0.35);
 
   z-index: 10000;
 
@@ -21,13 +27,16 @@ ytd-rich-item-renderer {
 
 .spoiler-shield-message {
   text-align: center;
+  color: white;
   font-size: 18px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
 .spoiler-shield-message small {
   display: block;
   margin-top: 8px;
   font-size: 13px;
-  opacity: 0.8;
+  font-weight: 400;
+  opacity: 0.85;
 }

@@ -7,6 +7,15 @@ function addOverlay(card: HTMLElement) {
     return;
   }
 
+  const content = card.querySelector<HTMLElement>('#content');
+
+  if (!content) {
+    return;
+  }
+
+  // Blur the actual YouTube content
+  content.classList.add('spoiler-shield-content-blurred');
+
   const overlay = document.createElement('div');
 
   overlay.className = 'spoiler-shield-overlay';
@@ -19,6 +28,7 @@ function addOverlay(card: HTMLElement) {
   `;
 
   overlay.addEventListener('click', () => {
+    content.classList.remove('spoiler-shield-content-blurred');
     overlay.remove();
   });
 
