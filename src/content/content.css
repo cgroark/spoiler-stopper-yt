@@ -1,15 +1,18 @@
-ytd-rich-item-renderer {
+/* Both homepage and search cards become positioning contexts */
+ytd-rich-item-renderer,
+ytd-video-renderer {
   position: relative !important;
+  z-index: 0;
 }
 
-/* Blur the actual YouTube card content */
-#content.spoiler-shield-content-blurred {
+/* Blur whichever container the TS adds the class to */
+.spoiler-shield-content-blurred {
   filter: blur(18px);
   transform: scale(1.02);
   transition: filter 0.2s ease;
 }
 
-/* Overlay sits ABOVE the blurred content */
+/* Overlay */
 .spoiler-shield-overlay {
   position: absolute;
   inset: 0;
@@ -18,25 +21,41 @@ ytd-rich-item-renderer {
   align-items: center;
   justify-content: center;
 
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.45);
 
   z-index: 10000;
 
   cursor: pointer;
+  color: white;
 }
 
-.spoiler-shield-message {
+/* Card */
+.spoiler-shield-card {
   text-align: center;
-  color: white;
+  padding: 24px;
+  user-select: none;
+  max-width: 90%;
+}
+
+.spoiler-shield-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+
+.spoiler-shield-title {
   font-size: 18px;
   font-weight: 600;
   line-height: 1.3;
 }
 
-.spoiler-shield-message small {
-  display: block;
-  margin-top: 8px;
+.spoiler-shield-channel {
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.spoiler-shield-details {
+  margin-top: 6px;
   font-size: 13px;
-  font-weight: 400;
-  opacity: 0.85;
+  opacity: 0.8;
 }
