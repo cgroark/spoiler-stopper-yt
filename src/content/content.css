@@ -1,8 +1,28 @@
 /* Both homepage and search cards become positioning contexts */
-ytd-rich-item-renderer,
+/* ytd-rich-item-renderer,
 ytd-video-renderer {
   position: relative !important;
   z-index: 0;
+} */
+
+ytd-rich-item-renderer, ytd-video-renderer {
+  position: relative !important;
+  z-index: 0;
+}
+
+.spoiler-shield-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: rgba(0, 0, 0, 0.45);
+
+  cursor: pointer;
+  color: white;
 }
 
 /* Blur whichever container the TS adds the class to */
