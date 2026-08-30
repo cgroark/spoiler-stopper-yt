@@ -1,15 +1,25 @@
 /* Both homepage and search cards become positioning contexts */
-/* ytd-rich-item-renderer,
+ytd-rich-item-renderer,
 ytd-video-renderer {
-  position: relative !important;
-  z-index: 0;
-} */
-
-ytd-rich-item-renderer, ytd-video-renderer {
   position: relative !important;
   z-index: 0;
 }
 
+.spoiler-shield-card-host {
+  position: relative !important;
+}
+
+ytm-shorts-lockup-view-model.spoiler-shield-card-host,
+ytm-shorts-lockup-view-model-v2.spoiler-shield-card-host,
+.shortsLockupViewModelHostThumbnailParentContainer.spoiler-shield-card-host {
+  display: block !important;
+  overflow: hidden !important;
+  isolation: isolate;
+}
+
+/*
+ * Main overlay
+ */
 .spoiler-shield-overlay {
   position: absolute;
   inset: 0;
@@ -23,38 +33,80 @@ ytd-rich-item-renderer, ytd-video-renderer {
 
   cursor: pointer;
   color: white;
+  text-decoration: none !important;
+
+  overflow: hidden;
 }
 
-/* Blur whichever container the TS adds the class to */
+ytm-shorts-lockup-view-model.spoiler-shield-card-host
+  > .spoiler-shield-overlay,
+ytm-shorts-lockup-view-model-v2.spoiler-shield-card-host
+  > .spoiler-shield-overlay,
+.shortsLockupViewModelHostThumbnailParentContainer.spoiler-shield-card-host
+  > .spoiler-shield-overlay {
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 2147483645 !important;
+}
+
+.shortsLockupViewModelHostThumbnailParentContainer.spoiler-shield-card-host
+  .spoiler-shield-card {
+  width: 100%;
+  max-width: 100%;
+  padding: 10px;
+}
+
+.shortsLockupViewModelHostThumbnailParentContainer.spoiler-shield-card-host
+  .spoiler-shield-icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.shortsLockupViewModelHostThumbnailParentContainer.spoiler-shield-card-host
+  .spoiler-shield-title {
+  font-size: 13px;
+  line-height: 1.18;
+  font-weight: 700;
+
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/*
+ * Blur whichever container the TS adds the class to
+ */
 .spoiler-shield-content-blurred {
   filter: blur(18px);
   transform: scale(1.02);
   transition: filter 0.2s ease;
 }
 
-/* Overlay */
-.spoiler-shield-overlay {
-  position: absolute;
-  inset: 0;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  background: rgba(0, 0, 0, 0.45);
-
-  z-index: 10000;
-
-  cursor: pointer;
-  color: white;
-}
-
-/* Card */
+/*
+ * Standard card
+ */
 .spoiler-shield-card {
+  box-sizing: border-box;
+
   text-align: center;
   padding: 24px;
+
   user-select: none;
+
+  width: 100%;
   max-width: 90%;
+  max-height: 100%;
+
+  overflow: hidden;
 }
 
 .spoiler-shield-icon {
@@ -66,16 +118,367 @@ ytd-rich-item-renderer, ytd-video-renderer {
   font-size: 18px;
   font-weight: 600;
   line-height: 1.3;
+
+  overflow-wrap: anywhere;
 }
 
 .spoiler-shield-channel {
   margin-top: 12px;
+
   font-size: 15px;
   font-weight: 500;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .spoiler-shield-details {
   margin-top: 6px;
+
   font-size: 13px;
+
   opacity: 0.8;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/*
+ * ============================================================
+ * COMPACT SIDE-PANEL VIDEO CARDS
+ * ============================================================
+ *
+ * These cards are much smaller than normal YouTube cards, so
+ * the overlay needs to be substantially more constrained.
+ */
+
+yt-lockup-view-model.spoiler-shield-card-host
+  .spoiler-shield-overlay,
+.ytLockupViewModelHorizontal .spoiler-shield-overlay {
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+yt-lockup-view-model.spoiler-shield-card-host
+  .spoiler-shield-card,
+.ytLockupViewModelHorizontal .spoiler-shield-card {
+  box-sizing: border-box;
+
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+
+  min-width: 0;
+
+  padding: 6px 8px;
+
+  overflow: hidden;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+yt-lockup-view-model.spoiler-shield-card-host
+  .spoiler-shield-icon,
+.ytLockupViewModelHorizontal .spoiler-shield-icon {
+  flex: 0 0 auto;
+
+  font-size: 18px;
+  line-height: 1;
+
+  margin-bottom: 4px;
+}
+
+yt-lockup-view-model.spoiler-shield-card-host
+  .spoiler-shield-title,
+.ytLockupViewModelHorizontal .spoiler-shield-title {
+  flex: 0 1 auto;
+
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.18;
+
+  text-align: center;
+
+  /*
+   * Never allow a long recommendation title to grow
+   * beyond the overlay.
+   */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+yt-lockup-view-model.spoiler-shield-card-host
+  .spoiler-shield-channel,
+.ytLockupViewModelHorizontal .spoiler-shield-channel {
+  flex: 0 0 auto;
+
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
+  margin-top: 4px;
+
+  font-size: 9px;
+  line-height: 1.2;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+yt-lockup-view-model.spoiler-shield-card-host
+  .spoiler-shield-details,
+.ytLockupViewModelHorizontal .spoiler-shield-details {
+  flex: 0 0 auto;
+
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
+  margin-top: 1px;
+
+  font-size: 8px;
+  line-height: 1.2;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/*
+ * ============================================================
+ * CURRENTLY VIEWED VIDEO TITLE
+ * ============================================================
+ *
+ * The TS replaces the visible title with its spoiler-safe
+ * version. Keep YouTube's normal title styling intact.
+ */
+
+#title.spoiler-shield-title-protected h1 {
+  overflow-wrap: anywhere;
+}
+
+
+/*
+ * ============================================================
+ * FIRST-RUN CONSENT MODAL
+ * ============================================================
+ */
+
+.spoiler-shield-consent {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  box-sizing: border-box;
+  padding: 24px;
+
+  background:
+    linear-gradient(
+      135deg,
+      #0a121f,
+      #0c202a
+    );
+
+  color: #f8fafc;
+  font-family:
+    Roboto,
+    Arial,
+    sans-serif;
+}
+
+.spoiler-shield-consent-panel {
+  box-sizing: border-box;
+
+  width: min(100%, 520px);
+  padding: 32px;
+
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: #111827;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+
+  text-align: left;
+}
+
+.spoiler-shield-consent-mark {
+  width: 48px;
+  height: 48px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-bottom: 18px;
+
+  border-radius: 8px;
+  background: #1f2937;
+
+  font-size: 28px;
+  line-height: 1;
+}
+
+.spoiler-shield-consent h1 {
+  margin: 0 0 14px;
+
+  color: #ffffff;
+
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.spoiler-shield-consent p {
+  margin: 0 0 14px;
+
+  color: #cbd5e1;
+
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.spoiler-shield-consent-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  margin-top: 24px;
+}
+
+.spoiler-shield-consent button {
+  box-sizing: border-box;
+
+  min-height: 44px;
+  padding: 0 18px;
+
+  border-radius: 6px;
+
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+.spoiler-shield-consent-primary {
+  border: 1px solid #22c55e;
+  background: #22c55e;
+  color: #052e16;
+}
+
+.spoiler-shield-consent-primary:hover,
+.spoiler-shield-consent-primary:focus-visible {
+  background: #4ade80;
+  border-color: #4ade80;
+}
+
+.spoiler-shield-consent-secondary {
+  border: 1px solid rgba(203, 213, 225, 0.32);
+  background: transparent;
+  color: #e2e8f0;
+}
+
+.spoiler-shield-consent-secondary:hover,
+.spoiler-shield-consent-secondary:focus-visible {
+  border-color: #e2e8f0;
+  background: rgba(226, 232, 240, 0.08);
+}
+
+.spoiler-shield-consent button:focus-visible {
+  outline: 3px solid rgba(96, 165, 250, 0.72);
+  outline-offset: 2px;
+}
+
+.spoiler-shield-toggle {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2147483646;
+
+  box-sizing: border-box;
+  max-width: min(280px, calc(100vw - 36px));
+  min-height: 42px;
+  padding: 0 14px;
+
+  border: 1px solid rgba(203, 213, 225, 0.35);
+  border-radius: 6px;
+  background: #111827;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.32);
+
+  color: #f8fafc;
+  font-family:
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+
+  cursor: pointer;
+}
+
+.spoiler-shield-toggle:hover,
+.spoiler-shield-toggle:focus-visible {
+  border-color: #22c55e;
+  background: #172033;
+}
+
+.spoiler-shield-toggle:focus-visible {
+  outline: 3px solid rgba(96, 165, 250, 0.72);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .spoiler-shield-consent {
+    align-items: stretch;
+    padding: 16px;
+  }
+
+  .spoiler-shield-consent-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    padding: 24px;
+  }
+
+  .spoiler-shield-consent h1 {
+    font-size: 24px;
+  }
+
+  .spoiler-shield-consent-actions {
+    flex-direction: column;
+  }
+
+  .spoiler-shield-consent button {
+    width: 100%;
+  }
+
+  .spoiler-shield-toggle {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
+  }
 }
