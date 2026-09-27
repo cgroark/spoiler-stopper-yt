@@ -1,7 +1,5 @@
 import './content.css';
 
-console.log('🛡️ Spoiler Shield loaded!');
-
 declare const chrome: {
   storage?: {
     local?: {
@@ -35,64 +33,23 @@ const observedShortsContainers =
   new WeakSet<HTMLElement>();
 
 /*
- * Keep the original watch-page title outside of
- * YouTube's DOM mutations.
- *
- * This is important because once we replace the title,
- * YouTube may mutate/re-render the title element and
- * its attributes. We never want to use our sanitized
- * title as the source for a second sanitization pass.
+ * --------------------------------------------------------------------------
+ * Watch-page state
+ * --------------------------------------------------------------------------
  */
+
 let originalWatchTitle = '';
+let originalWatchVideoId = '';
+
+/*
+ * Used to prevent the mutation observer from processing the entire page
+ * hundreds of times during a single YouTube render.
+ */
+let processingQueued = false;
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
-
-function isSponsoredCard(
-  card: HTMLElement
-): boolean {
-  /*
-   * Do not run Spoiler Shield on ads/sponsored content.
-   *
-   * YouTube's ad DOM changes fairly frequently, so we
-   * deliberately check several known indicators.
-   */
-  if (
-    card.matches(
-      'ytd-ad-slot-renderer, ytd-promoted-sparkles-web-renderer, ytd-display-ad-renderer'
-    )
-  ) {
-    return true;
-  }
-
-  if (
-    card.querySelector(
-      '[aria-label*="Sponsored" i], [aria-label*="Ad" i]'
-    )
-  ) {
-    return true;
-  }
-
-  const text =
-    card.textContent
-      ?.trim()
-      .toLowerCase() || '';
-
-  /*
-   * Only use this fallback when the card is very clearly
-   * an advertising card. We don't want ordinary sports
-   * titles containing words like "ad" to be excluded.
-   */
-  if (
-    text.includes('sponsored') ||
-    text.includes('sponsored content')
-  ) {
-    return true;
-  }
-
-  return false;
-}
 
 function cleanText(
   value: string
@@ -100,6 +57,75 @@ function cleanText(
   return value
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function getCurrentVideoId(): string {
+  try {
+    const url =
+      new URL(
+        window.location.href
+      );
+
+    return (
+      url.searchParams.get('v') ||
+      ''
+    );
+  } catch {
+    return '';
+  }
+}
+
+function isWatchPage(): boolean {
+  return (
+    window.location.pathname ===
+      '/watch' &&
+    !!getCurrentVideoId()
+  );
+}
+
+function isSponsoredCard(
+  card: HTMLElement
+): boolean {
+  /*
+   * Do not run Spoiler Shield on ads/sponsored content.
+   */
+  if (
+    card.matches(
+      'ytd-ad-slot-renderer, ytd-promoted-sparkles-web-renderer, ytd-display-ad-renderer'
+    ) ||
+    card.querySelector(
+      'ytd-ad-slot-renderer, ytd-promoted-sparkles-web-renderer, ytd-display-ad-renderer'
+    )
+  ) {
+    return true;
+  }
+
+  /*
+   * Do not use an aria-label substring selector for "Ad" here. Video
+   * titles and their aria-labels regularly contain those two letters in
+   * ordinary words (for example, "Addresses" or "Drama"), which caused
+   * legitimate cards to be mistaken for advertisements.
+   */
+  const labelledElements =
+    card.querySelectorAll<HTMLElement>(
+      '[aria-label]'
+    );
+
+  for (const element of labelledElements) {
+    const label = cleanText(
+      element.getAttribute('aria-label') || ''
+    );
+
+    if (
+      /^(?:ad|advertisement|sponsored(?: content)?)(?:$|[\s:·-])/i.test(
+        label
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -217,6 +243,9 @@ function getVideoTitle(
 
   /*
    * Shorts.
+   *
+   * IMPORTANT:
+   * Search for the title only inside this individual Shorts card.
    */
   if (!title) {
     const element =
@@ -269,13 +298,13 @@ function getVideoTitle(
   }
 
   /*
-   * Generic fallback for newer YouTube title elements.
+   * Generic fallback.
    */
   if (!title) {
     title =
       card
         .querySelector<HTMLElement>(
-          'h3, yt-formatted-string'
+          'h3'
         )
         ?.textContent
         ?.trim() || '';
@@ -299,17 +328,7 @@ function generateSafeTitle(
   }
 
   /*
-   * ------------------------------------------------------------------------
-   * Safe source / publisher
-   * ------------------------------------------------------------------------
-   *
-   * Example:
-   *
-   * "Messi scores 4 goals | ESPN FC"
-   *
-   * becomes:
-   *
-   * "Inter Miami vs. CF Montreal | ESPN FC"
+   * Source / publisher.
    */
   const source =
     originalTitle.match(
@@ -317,15 +336,13 @@ function generateSafeTitle(
     )?.[1]?.trim() || '';
 
   /*
-   * ------------------------------------------------------------------------
-   * Sporting event detection
-   * ------------------------------------------------------------------------
+   * Sporting event detection.
    *
-   * These describe WHAT is happening rather than WHO won.
+   * Numeric track events are deliberately preserved.
    */
   const event =
     originalTitle.match(
-      /\b(?:(Men'?s|Women'?s|Mixed)\s+)?(Mile|10000m|5000m|3000m(?:\s+steeplechase)?|1500m|800m|400m(?:\s+hurdles)?|200m|100m(?:\s+hurdles)?|110m(?:\s+hurdles)?|60m|10k|5k|Marathon|Pole\s+Vault|High\s+Jump|Long\s+Jump|Triple\s+Jump|Discus|Shot\s+Put|Hammer\s+Throw|Javelin|Decathlon|Heptathlon|4x100m(?:\s+(?:Mixed\s+)?Relay)?|4x200m(?:\s+(?:Mixed\s+)?Relay)?|4x400m(?:\s+(?:Mixed\s+)?Relay)?|4x800m(?:\s+(?:Mixed\s+)?Relay)?|Freestyle|Backstroke|Breaststroke|Butterfly|Individual\s+Medley|Relay)\b/i
+      /\b(?:(Men['’]?s|Women['’]?s|Mixed)\s+)?(Mile|10000m|5000m|3000m(?:\s+steeplechase)?|1500m|800m|400m(?:\s+hurdles)?|200m|100m(?:\s+hurdles)?|110m(?:\s+hurdles)?|60m|10k|5k|Marathon|Pole\s+Vault|High\s+Jump|Long\s+Jump|Triple\s+Jump|Discus|Shot\s+Put|Hammer\s+Throw|Javelin|Decathlon|Heptathlon|4x100m(?:\s+(?:Mixed\s+)?Relay)?|4x200m(?:\s+(?:Mixed\s+)?Relay)?|4x400m(?:\s+(?:Mixed\s+)?Relay)?|4x800m(?:\s+(?:Mixed\s+)?Relay)?|Freestyle|Backstroke|Breaststroke|Butterfly|Individual\s+Medley|Relay)\b/i
     );
 
   const eventName =
@@ -334,16 +351,7 @@ function generateSafeTitle(
       : '';
 
   /*
-   * ------------------------------------------------------------------------
-   * Team / player vs. team / player detection
-   * ------------------------------------------------------------------------
-   *
-   * Examples:
-   *
-   * Inter Miami vs. CF Montreal
-   * Arsenal vs Chelsea
-   * Lakers vs Celtics
-   * Djokovic versus Alcaraz
+   * Matchup detection.
    */
   const teamVsTeam =
     originalTitle.match(
@@ -356,10 +364,6 @@ function generateSafeTitle(
     matchupName =
       `${teamVsTeam[1].trim()} vs. ${teamVsTeam[2].trim()}`;
 
-    /*
-     * Strip obvious trailing competition/network words
-     * that accidentally got captured.
-     */
     matchupName =
       matchupName.replace(
         /\s+(?:MLS|NBA|NFL|NHL|NWSL|EPL|ESPN|FOX|CBS|NBC|TNT|TBS)\b.*$/i,
@@ -368,137 +372,159 @@ function generateSafeTitle(
   }
 
   /*
-   * ------------------------------------------------------------------------
-   * Competition / event context
-   * ------------------------------------------------------------------------
-   *
-   * This is especially useful for track titles such as:
-   *
-   * "# UNBELIEVABLE! Josh Kerr STUNS and Breaks Mile for
-   *  at London Diamond League 2026"
-   *
-   * We can safely preserve "London Diamond League 2026"
-   * while removing the result.
+   * Competition / event context.
    */
   const competition =
     originalTitle.match(
-      /\b((?:London|Paris|Rome|Tokyo|Boston|New York|Los Angeles|Oregon|Doha|Brussels|Monaco|Zurich|Stockholm|Oslo)\s+(?:Diamond League|Grand Prix|Marathon|Games)\b(?:\s+\d{4})?)/i
+      /\b((?:\d{4}\s+)?(?:London|Paris|Rome|Tokyo|Boston|New York|Los Angeles|Abu Dhabi|Oregon|Doha|Brussels|Monaco|Zurich|Stockholm|Oslo)\s+(?:Diamond League|Grand Prix|Marathon|Games|Olympics)\b(?:\s+\d{4})?)/i
     )?.[1]?.trim() || '';
 
   /*
-   * More generic competition names.
+   * Generic competition names.
    */
+  const genericCompetitionMatches =
+    Array.from(
+      originalTitle.matchAll(
+        /\b((?:\d{4}\s+)?(?:Diamond League|World(?: Athletics| Ultimate)? Championships?|Olympic(?: Games?)?|Olympics|(?:US|U\.S\.) Olympic Trials|European Championships?|World Athletics|NCAA Championships?|NBA Finals|Masters|College Football Playoff|Champions League|Europa League|Premier League|La Liga|Serie A|Bundesliga|MLS|NBA|NFL|NHL|NWSL|EPL)(?:\s+\d{4})?)\b/gi
+      )
+    )
+      .map((match) =>
+        match[1]?.trim() || ''
+      )
+      .filter(Boolean);
+
   const genericCompetition =
-    originalTitle.match(
-      /\b((?:Diamond League|World Championships?|Olympic Games?|Olympics|European Championships?|World Athletics|NCAA Championships?|College Football Playoff|Champions League|Europa League|Premier League|La Liga|Serie A|Bundesliga|MLS|NBA|NFL|NHL|NWSL|EPL)(?:\s+\d{4})?)\b/i
-    )?.[1]?.trim() || '';
+    genericCompetitionMatches.find(
+      (name) => /\b\d{4}\b/.test(name)
+    ) ||
+    genericCompetitionMatches[0] ||
+    '';
 
   const competitionName =
     competition ||
-    genericCompetition;
+    (/^Olympic$/i.test(genericCompetition)
+      ? 'Olympics'
+      : genericCompetition);
+
+  const gameContext =
+    originalTitle.match(
+      /\b(Game\s+\d+)\s+of\s+(?:the\s+)?((?:\d{4}\s+)?(?:NBA|WNBA|NFL|NHL|MLB)\s+Finals?)\b/i
+    );
+
+  const gameContextName =
+    gameContext
+      ? `${gameContext[1]} | ${gameContext[2]}`
+      : '';
 
   /*
-   * ------------------------------------------------------------------------
-   * Spoiler verbs
-   * ------------------------------------------------------------------------
+   * Spoiler verbs.
    */
   const spoilerVerb =
-    /\b(?:wins?|won|win|claims?|claimed|captures?|captured|secures?|secured|takes?|took|beats?|beat|defeats?|defeated|dusts?|dusted|dominates?|dominated|crushes?|crushed|edges?|edged|holds?|held|storms?|stormed|prevails?|prevailed|outduels?|outdueled|outlasts?|outlasted|outkicks?|outkicked|becomes?|became|earns?|earned|clinches?|clinched|qualifies?|qualified|advances?|advanced|eliminates?|eliminated|sets?|set|breaks?|broke|goes?|went|cruises?|cruised|surges?|surged|delivers?|delivered|ices?|iced|regains?|regained|reclaims?|reclaimed|sneaks?|snuck|seals?|sealed|flourishes?|flourished|smashes?|smashed|retains?|retained|defends?|defended|defend|repeats?|repeated|stuns?|stunned|shocks?|shocked|upsets?|upset|stuns?|stunning)\b/i;
+    /\b(?:wins?|won|claims?|claimed|captures?|captured|secures?|secured|takes?|took|beats?|beat|defeats?|defeated|dusts?|dusted|dominates?|dominated|crushes?|crushed|edges?|edged|holds?|held|storms?|stormed|prevails?|prevailed|outduels?|outdueled|outlasts?|outlasted|outkicks?|outkicked|becomes?|became|earns?|earned|clinches?|clinched|qualifies?|qualified|advances?|advanced|eliminates?|eliminated|sets?|set|breaks?|broke|goes?|went|cruises?|cruised|surges?|surged|delivers?|delivered|ices?|iced|regains?|regained|reclaims?|reclaimed|sneaks?|snuck|seals?|sealed|flourishes?|flourished|smashes?|smashed|retains?|retained|defends?|defended|defend|repeats?|repeated|stuns?|stunned|shocks?|shocked|upsets?|upset)\b/i;
 
   /*
-   * ------------------------------------------------------------------------
-   * Result / achievement phrases
-   * ------------------------------------------------------------------------
+   * Result / achievement phrases.
    */
   const spoilerPhrase =
-    /\b(?:gold(?:\s+medal)?|silver(?:\s+medal)?|bronze(?:\s+medal)?|medal|relay\s+title|title\s+defen[cs]e|repeat(?:s)?\s+as\s+(?:champion|champions)|back[-\s]?to[-\s]?back|successfully\s+defends?|keeps?\s+(?:the\s+)?title|kept\s+(?:the\s+)?title|retains?\s+(?:the\s+)?crown|defends?\s+(?:the\s+)?crown|new\s+champion|new\s+champions|first\s+gold|first\s+medal|first\s+(?:pro\s+)?national\s+championship|stunner|sneaks?\s+past|pulls?\s+off\s+a\s+stunner|world\s+record|world[-\s]?lead|full\s+second|personal\s+best|national\s+record|olympic\s+record|come[-\s]?from[-\s]?behind|anchor\s+leg|youngest|ever|history(?:\s+made)?|makes?\s+history|comeback|revenge|buzzer[-\s]?beater|walk[-\s]?off|game\s+winner)\b/i;
+    /\b(?:gold(?:\s+medal)?|silver(?:\s+medal)?|bronze(?:\s+medal)?|medal|relay\s+title|world\s+title\s+celebrations?|crowning\s+moment|winning\s+putt|career\s+grand\s+slam|title\s+defen[cs]e|repeat(?:s)?\s+as\s+(?:champion|champions)|back[-\s]?to[-\s]?back|successfully\s+defends?|keeps?\s+(?:the\s+)?title|kept\s+(?:the\s+)?title|retains?\s+(?:the\s+)?crown|defends?\s+(?:the\s+)?crown|new\s+champion|new\s+champions|first\s+gold|first\s+medal|first\s+(?:pro\s+)?national\s+championship|stunner|sneaks?\s+past|pulls?\s+off\s+a\s+stunner|world\s+record|world[-\s]?lead|full\s+second|personal\s+best|national\s+record|olympic\s+record|come[-\s]?from[-\s]?behind|anchor\s+leg|youngest|ever|history(?:\s+made)?|makes?\s+history|comeback|revenge|buzzer[-\s]?beater|walk[-\s]?off|game\s+winner)\b/i;
+
+  const championResult =
+    /\b(?:new|reigning|becomes?(?:\s+the)?)\s+(?:(?:men['’]?s|women['’]?s)\s+)?(?:\d{2,5}m\s+)?(?:olympic\s+|world\s+|national\s+)?champions?\b/i;
+
+  const progressionResult =
+    /\b(?:coasts?|cruises?|storms?|powers?|eases?|sprints?)\s+(?:comfortably\s+)?into\s+(?:the\s+)?(?:(?:men['’]?s|women['’]?s)\s+)?(?:\d{2,5}m\s+)?(?:semi[-\s]?finals?|finals?)\b/i;
 
   /*
-   * ------------------------------------------------------------------------
-   * Short result statements
-   * ------------------------------------------------------------------------
+   * Short result statements.
    */
   const resultPhrase =
     /\b[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’.-]+(?:\s+[A-ZÀ-ÖØ-Ý][A-Za-zÀ-ÖØ-öø-ÿ'’.-]+)*\s+(?:wins?|won|withdraws?|withdrew|loses?|lost|qualifies?|qualified|advances?|advanced|fails?|failed|places?|placed)\b/i;
 
   /*
-   * ------------------------------------------------------------------------
-   * Individual performance
-   * ------------------------------------------------------------------------
+   * Finishing positions, whether written as "7th place" or
+   * "finished 7th", disclose the result just as directly as a win.
+   */
+  const placementResult =
+    /\b(?:(?:finishes?|finished|finishing|places?|placed|placing|takes?|took|taking)\s+(?:\d{1,3}(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)(?:\s+place)?|(?:\d{1,3}(?:st|nd|rd|th)|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+place)\b/i;
+
+  /*
+   * Individual performance.
    */
   const performanceSpoiler =
     /\b(?:scores?|scored|nets?|netted|bags?|bagged|drops?|dropped|hits?|hit|throws?|threw|runs?|ran)\s+(?:\d+\s+)?(?:goals?|times?|points?|runs?|home\s+runs?|touchdowns?|tries?|assists?|rebounds?|yards?|meters?|metres?)\b/i;
 
   /*
-   * ------------------------------------------------------------------------
-   * Scoring achievements
-   * ------------------------------------------------------------------------
+   * Scoring achievements.
    */
   const scoringAchievement =
     /\b(?:hat[-\s]?trick|four[-\s]?goal(?:\s+haul)?|five[-\s]?goal(?:\s+haul)?|four\s+goals?|five\s+goals?|three\s+goals?|two\s+goals?)\b/i;
 
   /*
-   * ------------------------------------------------------------------------
-   * Explicit scorelines
-   * ------------------------------------------------------------------------
+   * Explicit scorelines.
    */
   const scoreline =
     /\b\d+\s*[-:–—]\s*\d+\b/;
 
   /*
-   * ------------------------------------------------------------------------
-   * Track/field result patterns
-   *
-   * These catch constructions like:
-   *
-   * "Breaks Mile"
-   * "Breaks World Record"
-   * "Sets New Record"
-   * ------------------------------------------------------------------------
+   * Track / field achievement.
    */
   const athleticAchievement =
-    /\b(?:breaks?|broke|sets?|set|smashes?|smash(?:es)?|runs?|ran)\s+(?:the\s+)?(?:mile|world\s+record|record|national\s+record|olympic\s+record|world\s+lead|personal\s+best)\b/i;
+    /\b(?:breaks?|broke|sets?|set|smashes?|smashed|runs?|ran|stuns?|stunned)\s+(?:the\s+)?(?:mile|world\s+record|record|national\s+record|olympic\s+record|world\s+lead|personal\s+best)\b/i;
 
   /*
-   * ------------------------------------------------------------------------
-   * Overall spoiler detection
-   * ------------------------------------------------------------------------
+   * Explicit "breaks + event" pattern.
+   */
+  const breaksEvent =
+    /\b(?:breaks?|broke)\s+(?:the\s+)?(?:mile|10000m|5000m|3000m|1500m|800m|400m|200m|100m|110m|60m|10k|5k)\b/i;
+
+  /*
+   * Overall spoiler detection.
    */
   const hasSpoiler =
     spoilerVerb.test(originalTitle) ||
     spoilerPhrase.test(originalTitle) ||
+    championResult.test(originalTitle) ||
+    progressionResult.test(originalTitle) ||
     resultPhrase.test(originalTitle) ||
+    placementResult.test(originalTitle) ||
     performanceSpoiler.test(originalTitle) ||
     scoringAchievement.test(originalTitle) ||
     scoreline.test(originalTitle) ||
-    athleticAchievement.test(originalTitle);
+    athleticAchievement.test(originalTitle) ||
+    breaksEvent.test(originalTitle);
 
   /*
    * ------------------------------------------------------------------------
    * Best safe reconstruction
    * ------------------------------------------------------------------------
-   *
+   */
+
+  /*
    * Matchup is the most useful safe context.
    */
-  if (hasSpoiler && matchupName) {
+  if (
+    hasSpoiler &&
+    matchupName
+  ) {
     return source
       ? `${matchupName} | ${source}`
       : matchupName;
   }
 
+  if (
+    hasSpoiler &&
+    gameContextName
+  ) {
+    return gameContextName;
+  }
+
   /*
-   * Track/field event + competition.
-   *
-   * Example:
-   *
-   * "# UNBELIEVABLE! Josh Kerr STUNS and Breaks Mile for
-   *  at London Diamond League 2026"
-   *
-   * becomes approximately:
-   *
-   * "Mile | London Diamond League 2026"
+   * Track / field event + competition.
    */
-  if (hasSpoiler && eventName) {
+  if (
+    hasSpoiler &&
+    eventName
+  ) {
     if (competitionName) {
       return `${eventName} | ${competitionName}`;
     }
@@ -511,28 +537,24 @@ function generateSafeTitle(
   }
 
   /*
-   * If we have competition context but no formal event,
-   * preserve that rather than returning "Sports video".
+   * Competition without a formal event.
    */
-  if (hasSpoiler && competitionName) {
+  if (
+    hasSpoiler &&
+    competitionName
+  ) {
     return competitionName;
   }
 
   /*
-   * ------------------------------------------------------------------------
-   * Generic sanitization fallback
-   * ------------------------------------------------------------------------
-   *
-   * We only use this path when no clean matchup/event was
-   * detected. Importantly, we NEVER return the original title
-   * after spoiler detection.
+   * Generic sanitization fallback.
    */
+
   let safeTitle =
     originalTitle;
 
   /*
-   * Preserve numeric sporting events before removing
-   * potentially spoiler-ish numeric information.
+   * Preserve numeric sporting events before removing numbers.
    */
   const preservedEvents: string[] = [];
 
@@ -581,7 +603,7 @@ function generateSafeTitle(
    */
   safeTitle =
     safeTitle.replace(
-      /\b(?:breaks?|broke|sets?|set|smashes?|smash(?:es)?|stuns?|stunned|shocks?|shocked|upsets?|upset)\s+(?:the\s+)?(?:mile|world\s+record|record|national\s+record|olympic\s+record|world\s+lead|personal\s+best)\b/gi,
+      /\b(?:breaks?|broke|sets?|set|smashes?|smashed|stuns?|stunned|shocks?|shocked|upsets?|upset)\s+(?:the\s+)?(?:mile|world\s+record|record|national\s+record|olympic\s+record|world\s+lead|personal\s+best)\b/gi,
       ''
     );
 
@@ -599,7 +621,13 @@ function generateSafeTitle(
    */
   safeTitle =
     safeTitle.replace(
-      /\b(?:world\s+record|olympic\s+record|personal\s+best|national\s+record|gold\s+medal|silver\s+medal|bronze\s+medal|world[-\s]?lead|first\s+gold(?:\s+medal)?|first\s+medal|makes?\s+history|history\s+made|final\s+score|game\s+winner|walk[-\s]?off|buzzer[-\s]?beater|comeback|revenge|anchor\s+leg|full\s+second|hat[-\s]?trick|stunner)\b/gi,
+      /\b(?:world\s+record|olympic\s+record|personal\s+best|national\s+record|gold(?:\s+medal)?|silver(?:\s+medal)?|bronze(?:\s+medal)?|world[-\s]?lead|first\s+gold(?:\s+medal)?|first\s+medal|makes?\s+history|history\s+made|final\s+score|game\s+winner|walk[-\s]?off|buzzer[-\s]?beater|comeback|revenge|anchor\s+leg|full\s+second|hat[-\s]?trick|stunner)\b/gi,
+      ''
+    );
+
+  safeTitle =
+    safeTitle.replace(
+      /\s*-\s*YouTube\s*$/i,
       ''
     );
 
@@ -608,7 +636,7 @@ function generateSafeTitle(
    */
   safeTitle =
     safeTitle.replace(
-      /\b(?:unbelievable|unbelievable!|insane|incredible|incredible!|amazing|shocking|shocking!|wow|wow!|epic)\b/gi,
+      /\b(?:unbelievable|insane|incredible|amazing|shocking|wow|epic|unreal|ridiculous|sensational)\b/gi,
       ''
     );
 
@@ -663,13 +691,12 @@ function generateSafeTitle(
    */
   safeTitle =
     safeTitle.replace(
-      /^[#\-–—:!?.\s]+|[#\-–—:!?.\s]+$/g,
+      /^[#\-–—:!?,.\s]+|[#\-–—:!?,.\s]+$/g,
       ''
     );
 
   /*
-   * If spoiler detected and useful content remains,
-   * return the sanitized version.
+   * Never expose the original title after spoiler detection.
    */
   if (
     hasSpoiler &&
@@ -680,10 +707,6 @@ function generateSafeTitle(
       : safeTitle;
   }
 
-  /*
-   * Never expose the original title once a spoiler
-   * has been positively identified.
-   */
   if (hasSpoiler) {
     return 'Sports video';
   }
@@ -704,35 +727,59 @@ function getCurrentWatchTitleElement() {
   );
 }
 
+function getPlayerOverlayTitleElements(): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '.ytp-fullscreen-metadata h2.ytPlayerOverlayVideoDetailsRendererTitle'
+    )
+  );
+}
+
+function setTitleText(
+  titleElement: HTMLElement,
+  title: string
+) {
+  const attributedText =
+    titleElement.querySelector<HTMLElement>(
+      ':scope > .ytAttributedStringHost'
+    );
+
+  if (attributedText) {
+    attributedText.textContent = title;
+  } else {
+    titleElement.textContent = title;
+  }
+}
+
 function getOriginalWatchTitle(
   titleElement: HTMLElement
 ): string {
-  /*
-   * First preference: our own stored value.
-   *
-   * This survives our own textContent replacement and
-   * protects us from MutationObserver re-processing.
-   */
-  const stored =
+  const currentVideoId =
+    getCurrentVideoId();
+
+  const storedVideoId =
+    titleElement.getAttribute(
+      'data-spoiler-shield-video-id'
+    ) || '';
+
+  const storedTitle =
     titleElement.getAttribute(
       'data-spoiler-shield-original-title'
-    )?.trim();
+    )?.trim() || '';
 
-  if (stored) {
-    return stored;
+  if (
+    storedTitle &&
+    storedVideoId &&
+    storedVideoId === currentVideoId
+  ) {
+    return storedTitle;
   }
 
-  /*
-   * Next try YouTube's title attribute.
-   */
   const attributeTitle =
     titleElement
       .getAttribute('title')
       ?.trim();
 
-  /*
-   * Finally use textContent.
-   */
   const textTitle =
     titleElement.textContent
       ?.trim() || '';
@@ -746,12 +793,40 @@ function getOriginalWatchTitle(
       'data-spoiler-shield-original-title',
       original
     );
+
+    if (currentVideoId) {
+      titleElement.setAttribute(
+        'data-spoiler-shield-video-id',
+        currentVideoId
+      );
+    }
   }
 
   return original;
 }
 
+function resetWatchTitleStateIfVideoChanged() {
+  const currentVideoId =
+    getCurrentVideoId();
+
+  if (
+    currentVideoId &&
+    currentVideoId !==
+      originalWatchVideoId
+  ) {
+    originalWatchTitle = '';
+    originalWatchVideoId =
+      currentVideoId;
+  }
+}
+
 function protectCurrentVideoTitle() {
+  if (!isWatchPage()) {
+    return;
+  }
+
+  resetWatchTitleStateIfVideoChanged();
+
   const titleElement =
     getCurrentWatchTitleElement();
 
@@ -759,11 +834,37 @@ function protectCurrentVideoTitle() {
     return;
   }
 
+  const currentVideoId =
+    getCurrentVideoId();
+
+  const elementVideoId =
+    titleElement.getAttribute(
+      'data-spoiler-shield-video-id'
+    ) || '';
+
   /*
-   * Capture the original title once.
-   *
-   * This is deliberately done before any replacement.
+   * YouTube reused the title element for a different video.
    */
+  if (
+    elementVideoId &&
+    currentVideoId &&
+    elementVideoId !== currentVideoId
+  ) {
+    titleElement.removeAttribute(
+      'data-spoiler-shield-original-title'
+    );
+
+    titleElement.removeAttribute(
+      'data-spoiler-shield-safe-title'
+    );
+
+    titleElement.removeAttribute(
+      'data-spoiler-shield-video-id'
+    );
+
+    originalWatchTitle = '';
+  }
+
   const originalTitle =
     originalWatchTitle ||
     getOriginalWatchTitle(
@@ -777,6 +878,9 @@ function protectCurrentVideoTitle() {
   originalWatchTitle =
     originalTitle;
 
+  originalWatchVideoId =
+    currentVideoId;
+
   const safeTitle =
     generateSafeTitle(
       originalTitle
@@ -788,36 +892,52 @@ function protectCurrentVideoTitle() {
   if (
     safeTitle === originalTitle
   ) {
+    titleElement.removeAttribute(
+      'data-spoiler-shield-safe-title'
+    );
+
+    document
+      .querySelector<HTMLElement>(
+        '#title'
+      )
+      ?.classList.remove(
+        'spoiler-shield-title-protected'
+      );
+
     return;
   }
 
   /*
-   * Already applied.
+   * Already applied to this exact title/video.
    */
   if (
     titleElement.getAttribute(
       'data-spoiler-shield-safe-title'
-    ) === safeTitle
+    ) === safeTitle &&
+    titleElement.getAttribute(
+      'data-spoiler-shield-video-id'
+    ) === currentVideoId
   ) {
     return;
   }
 
-  /*
-   * Keep the original permanently on our own
-   * data attribute.
-   */
   titleElement.setAttribute(
     'data-spoiler-shield-original-title',
     originalTitle
   );
 
-  titleElement.textContent =
-    safeTitle;
-
   titleElement.setAttribute(
     'data-spoiler-shield-safe-title',
     safeTitle
   );
+
+  titleElement.setAttribute(
+    'data-spoiler-shield-video-id',
+    currentVideoId
+  );
+
+  titleElement.textContent =
+    safeTitle;
 
   document
     .querySelector<HTMLElement>(
@@ -828,33 +948,137 @@ function protectCurrentVideoTitle() {
     );
 }
 
+function protectPlayerOverlayTitles() {
+  if (!isWatchPage()) {
+    return;
+  }
+
+  const currentVideoId =
+    getCurrentVideoId();
+
+  getPlayerOverlayTitleElements().forEach(
+    (titleElement) => {
+      const elementVideoId =
+        titleElement.getAttribute(
+          'data-spoiler-shield-video-id'
+        ) || '';
+
+      if (
+        elementVideoId &&
+        elementVideoId !== currentVideoId
+      ) {
+        titleElement.removeAttribute(
+          'data-spoiler-shield-original-title'
+        );
+        titleElement.removeAttribute(
+          'data-spoiler-shield-safe-title'
+        );
+        titleElement.removeAttribute(
+          'data-spoiler-shield-video-id'
+        );
+      }
+
+      const originalTitle =
+        getOriginalWatchTitle(
+          titleElement
+        );
+
+      if (!originalTitle) {
+        return;
+      }
+
+      const safeTitle =
+        generateSafeTitle(
+          originalTitle
+        );
+
+      if (safeTitle === originalTitle) {
+        titleElement.removeAttribute(
+          'data-spoiler-shield-safe-title'
+        );
+        return;
+      }
+
+      titleElement.setAttribute(
+        'data-spoiler-shield-original-title',
+        originalTitle
+      );
+      titleElement.setAttribute(
+        'data-spoiler-shield-safe-title',
+        safeTitle
+      );
+      titleElement.setAttribute(
+        'data-spoiler-shield-video-id',
+        currentVideoId
+      );
+
+      if (
+        cleanText(
+          titleElement.textContent || ''
+        ) !== safeTitle
+      ) {
+        setTitleText(
+          titleElement,
+          safeTitle
+        );
+      }
+    }
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Shorts                                                                     */
 /* -------------------------------------------------------------------------- */
 
+/*
+ * A Shorts "shelf" can contain many individual Shorts.
+ *
+ * We must NEVER treat the shelf itself as the video card.
+ *
+ * The important distinction is:
+ *
+ *   ytm-shorts-lockup-view-model
+ *       └── ytm-shorts-lockup-view-model-v2
+ *
+ * If a wrapper contains another Shorts lockup, the wrapper is a container,
+ * not an individual video.
+ */
 function isShortCard(
   card: HTMLElement
-) {
+): boolean {
   return (
     card.matches(
       'ytm-shorts-lockup-view-model-v2'
     ) ||
-    card.matches(
-      'ytm-shorts-lockup-view-model'
+    (
+      card.matches(
+        'ytm-shorts-lockup-view-model'
+      ) &&
+      !card.querySelector(
+        ':scope > ytm-shorts-lockup-view-model-v2'
+      )
     )
   );
 }
 
+/*
+ * A Shorts shelf/wrapper is anything that contains another Shorts card.
+ */
 function isShortsShelf(
   card: HTMLElement
-) {
+): boolean {
   return (
     card.matches(
       'ytm-shorts-lockup-view-model'
     ) &&
-    card.querySelector(
-      'ytm-shorts-lockup-view-model-v2'
-    ) !== null
+    (
+      card.querySelector(
+        ':scope > ytm-shorts-lockup-view-model-v2'
+      ) !== null ||
+      card.querySelector(
+        'ytm-shorts-lockup-view-model-v2'
+      ) !== null
+    )
   );
 }
 
@@ -862,7 +1086,7 @@ function removeOverlayFromCard(
   card: HTMLElement
 ) {
   card
-    .querySelectorAll<HTMLAnchorElement>(
+    .querySelectorAll<HTMLElement>(
       '.spoiler-shield-overlay'
     )
     .forEach((overlay) => {
@@ -882,6 +1106,11 @@ function removeOverlayFromCard(
     'spoiler-shield-card-host'
   );
 
+  setShortsTitleProtection(
+    card,
+    false
+  );
+
   card
     .querySelectorAll<HTMLElement>(
       '.spoiler-shield-card-host'
@@ -895,32 +1124,88 @@ function removeOverlayFromCard(
 
 function getShortsThumbnailContainer(
   card: HTMLElement
-) {
-  return card.querySelector<HTMLElement>(
-    '.shortsLockupViewModelHostThumbnailParentContainer'
+): HTMLElement | null {
+  /*
+   * Only search inside this exact Shorts card.
+   *
+   * :scope prevents us from accidentally climbing into or selecting
+   * a shared parent container.
+   */
+  return (
+    card.querySelector<HTMLElement>(
+      ':scope > .shortsLockupViewModelHostThumbnailParentContainer'
+    ) ??
+    card.querySelector<HTMLElement>(
+      '.shortsLockupViewModelHostThumbnailParentContainer'
+    )
   );
 }
 
-function hasDirectShortsLink(
+function getDirectShortsLink(
   card: HTMLElement
-) {
-  return Array.from(
+): HTMLAnchorElement | null {
+  /*
+   * Prefer a link owned by THIS exact Shorts card.
+   */
+  const links =
     card.querySelectorAll<HTMLAnchorElement>(
       'a.shortsLockupViewModelHostOutsideMetadataEndpoint, a.shortsLockupViewModelHostEndpoint'
-    )
-  ).some((link) => {
+    );
+
+  for (const link of links) {
     const owner =
       link.closest(
         'ytm-shorts-lockup-view-model-v2, ytm-shorts-lockup-view-model'
       );
 
-    return owner === card;
-  });
+    if (owner === card) {
+      return link;
+    }
+  }
+
+  return null;
+}
+
+function hasDirectShortsLink(
+  card: HTMLElement
+): boolean {
+  return !!getDirectShortsLink(
+    card
+  );
+}
+
+function setShortsTitleProtection(
+  card: HTMLElement,
+  protectedTitle: boolean
+) {
+  if (!isShortCard(card)) {
+    return;
+  }
+
+  card
+    .querySelectorAll<HTMLElement>(
+      'a.shortsLockupViewModelHostOutsideMetadataEndpoint, .shortsLockupViewModelHostMetadataTitle'
+    )
+    .forEach((titleElement) => {
+      const owner =
+        titleElement.closest(
+          'ytm-shorts-lockup-view-model-v2, ytm-shorts-lockup-view-model'
+        );
+
+      if (owner !== card) {
+        return;
+      }
+
+      titleElement.classList.toggle(
+        'spoiler-shield-short-title-protected',
+        protectedTitle
+      );
+    });
 }
 
 function getBlurContainer(
   card: HTMLElement
-) {
+): HTMLElement | null {
   /*
    * Search results.
    */
@@ -935,7 +1220,7 @@ function getBlurContainer(
   }
 
   /*
-   * Homepage / subscription / recommendation cards.
+   * Homepage / subscriptions / recommendations.
    */
   if (
     card.matches(
@@ -964,33 +1249,25 @@ function getBlurContainer(
 
   /*
    * Shorts.
+   *
+   * IMPORTANT:
+   * Only an individual Shorts card reaches this branch.
    */
   if (
-    card.matches(
-      'ytm-shorts-lockup-view-model-v2'
-    ) ||
-    card.matches(
-      'ytm-shorts-lockup-view-model'
-    )
+    isShortCard(card)
   ) {
-    if (
-      isShortsShelf(card) ||
-      !hasDirectShortsLink(card)
-    ) {
-      return null;
-    }
+    const thumbnail =
+      card.querySelector<HTMLElement>(
+        ':scope > yt-thumbnail-view-model'
+      ) ??
+      card.querySelector<HTMLElement>(
+        ':scope > .ytThumbnailViewModelImage'
+      ) ??
+      card.querySelector<HTMLElement>(
+        ':scope img'
+      );
 
-    return (
-      card.querySelector<HTMLElement>(
-        'yt-thumbnail-view-model'
-      ) ??
-      card.querySelector<HTMLElement>(
-        '.ytThumbnailViewModelImage'
-      ) ??
-      card.querySelector<HTMLElement>(
-        'img'
-      )
-    );
+    return thumbnail;
   }
 
   return null;
@@ -998,7 +1275,7 @@ function getBlurContainer(
 
 function getOverlayContainer(
   card: HTMLElement
-) {
+): HTMLElement | null {
   if (isShortCard(card)) {
     return getShortsThumbnailContainer(
       card
@@ -1034,15 +1311,31 @@ function reinforceShortsOverlay(
     return;
   }
 
+  /*
+   * Make sure the blur is applied only to this Shorts thumbnail.
+   */
   content.classList.add(
     'spoiler-shield-content-blurred'
+  );
+
+  setShortsTitleProtection(
+    card,
+    true
   );
 
   overlayContainer.classList.add(
     'spoiler-shield-card-host'
   );
 
+  /*
+   * YouTube may move/rebuild children during hover.
+   *
+   * Re-append the overlay to THIS card's thumbnail container rather
+   * than allowing it to migrate into a shared Shorts shelf.
+   */
   if (
+    overlay.parentElement !==
+    overlayContainer ||
     overlayContainer.lastElementChild !==
     overlay
   ) {
@@ -1085,9 +1378,16 @@ function observeShortsOverlayContainer(
       window.requestAnimationFrame(
         () => {
           queued = false;
-          reinforceShortsOverlay(
-            card
-          );
+
+          if (
+            document.contains(
+              card
+            )
+          ) {
+            reinforceShortsOverlay(
+              card
+            );
+          }
         }
       );
     });
@@ -1107,7 +1407,7 @@ function observeShortsOverlayContainer(
 
 function getVideoLink(
   card: HTMLElement
-) {
+): HTMLAnchorElement | null {
   /*
    * Search results.
    */
@@ -1128,15 +1428,12 @@ function getVideoLink(
 
   /*
    * Shorts.
+   *
+   * Only return a link belonging to THIS exact Shorts card.
    */
   if (isShortCard(card)) {
-    return (
-      card.querySelector<HTMLAnchorElement>(
-        'a.shortsLockupViewModelHostOutsideMetadataEndpoint'
-      ) ??
-      card.querySelector<HTMLAnchorElement>(
-        'a.shortsLockupViewModelHostEndpoint'
-      )
+    return getDirectShortsLink(
+      card
     );
   }
 
@@ -1155,7 +1452,10 @@ function getVideoLink(
 function addOverlay(
   card: HTMLElement
 ) {
-  if (isSponsoredCard(card)) {
+  if (
+    isSponsoredCard(card) ||
+    isShortsShelf(card)
+  ) {
     return;
   }
 
@@ -1166,6 +1466,9 @@ function addOverlay(
     return;
   }
 
+  /*
+   * Only look for a direct overlay belonging to this exact container.
+   */
   if (
     overlayContainer.querySelector(
       ':scope > .spoiler-shield-overlay'
@@ -1192,11 +1495,7 @@ function addOverlay(
     getVideoTitle(card);
 
   /*
-   * If YouTube hasn't exposed a title yet,
-   * don't manufacture "Sports video".
-   *
-   * The MutationObserver will try again once the
-   * card finishes rendering.
+   * YouTube sometimes creates the card before its title.
    */
   if (!originalTitle) {
     return;
@@ -1207,6 +1506,11 @@ function addOverlay(
       originalTitle
     );
 
+  /*
+   * The card itself is the positioning context for normal videos.
+   *
+   * For Shorts, the thumbnail container is the positioning context.
+   */
   card.classList.add(
     'spoiler-shield-card-host'
   );
@@ -1217,6 +1521,11 @@ function addOverlay(
 
   content.classList.add(
     'spoiler-shield-content-blurred'
+  );
+
+  setShortsTitleProtection(
+    card,
+    true
   );
 
   const metadata =
@@ -1312,6 +1621,12 @@ function addOverlay(
     overlayCard
   );
 
+  /*
+   * IMPORTANT:
+   * Append directly to the individual overlay container.
+   *
+   * We never append to a Shorts shelf.
+   */
   overlayContainer.appendChild(
     overlay
   );
@@ -1337,11 +1652,35 @@ function protectVideo(
   }
 
   /*
-   * Never process a Shorts shelf as though it were
-   * an individual video.
+   * Never process a Shorts shelf/container.
    */
   if (isShortsShelf(card)) {
-    removeOverlayFromCard(card);
+    /*
+     * Only remove protection that is directly associated with this
+     * container. We don't want removing a shelf-level element to
+     * accidentally affect its individual Shorts.
+     */
+    card
+      .querySelectorAll<HTMLElement>(
+        ':scope > .spoiler-shield-overlay'
+      )
+      .forEach((overlay) => {
+        overlay.remove();
+      });
+
+    return;
+  }
+
+  /*
+   * A legacy Shorts wrapper that contains another Shorts lockup is
+   * still not an individual card.
+   */
+  if (
+    card.matches(
+      'ytm-shorts-lockup-view-model'
+    ) &&
+    !isShortCard(card)
+  ) {
     return;
   }
 
@@ -1355,45 +1694,72 @@ function protectVideo(
   const currentHref =
     currentLink.href;
 
-  if (isShortCard(card)) {
-    card.classList.remove(
-      'spoiler-shield-content-blurred'
-    );
+  const overlayContainer =
+    getOverlayContainer(card);
+
+  if (!overlayContainer) {
+    return;
   }
 
+  /*
+   * Only inspect overlays directly belonging to this card/container.
+   *
+   * This is important for Shorts because querying the whole card can
+   * otherwise find an overlay belonging to a nested/adjacent video.
+   */
   const existingOverlay =
-    card.querySelector<HTMLAnchorElement>(
+    overlayContainer.querySelector<HTMLAnchorElement>(
       ':scope > .spoiler-shield-overlay'
-    ) ??
-    getOverlayContainer(card)
-      ?.querySelector<HTMLAnchorElement>(
-        ':scope > .spoiler-shield-overlay'
-      ) ??
-    null;
+    );
 
   /*
-   * Existing overlay belongs to the same video.
+   * Existing overlay belongs to this exact video.
    */
   if (
     existingOverlay &&
     existingOverlay.href ===
       currentHref
   ) {
-    reinforceShortsOverlay(card);
-    observeShortsOverlayContainer(
-      card
-    );
+    if (isShortCard(card)) {
+      reinforceShortsOverlay(card);
+
+      observeShortsOverlayContainer(
+        card
+      );
+    }
+
     return;
   }
 
   /*
-   * Renderer reused for a different video.
+   * YouTube reused this renderer for a different video.
    */
   if (existingOverlay) {
     existingOverlay.remove();
   }
 
-  removeOverlayFromCard(card);
+  /*
+   * Remove classes associated with this exact card.
+   */
+  const content =
+    getBlurContainer(card);
+
+  content?.classList.remove(
+    'spoiler-shield-content-blurred'
+  );
+
+  setShortsTitleProtection(
+    card,
+    false
+  );
+
+  card.classList.remove(
+    'spoiler-shield-card-host'
+  );
+
+  overlayContainer.classList.remove(
+    'spoiler-shield-card-host'
+  );
 
   addOverlay(card);
 }
@@ -1437,20 +1803,43 @@ function getVideoCards(): HTMLElement[] {
     });
 
   /*
-   * Shorts search results.
+   * ------------------------------------------------------------------------
+   * Shorts
+   * ------------------------------------------------------------------------
+   *
+   * IMPORTANT:
+   *
+   * Search for both known renderers, but ONLY add actual leaf cards.
+   *
+   * A wrapper containing another Shorts renderer is deliberately skipped.
    */
   document
     .querySelectorAll<HTMLElement>(
       'ytm-shorts-lockup-view-model-v2, ytm-shorts-lockup-view-model'
     )
     .forEach((card) => {
-      if (
-        !isShortsShelf(card) &&
-        hasDirectShortsLink(card) &&
-        !isSponsoredCard(card)
-      ) {
-        cards.push(card);
+      /*
+       * Skip a Shorts shelf / wrapper.
+       */
+      if (isShortsShelf(card)) {
+        return;
       }
+
+      /*
+       * Must have a link owned by this exact card.
+       */
+      if (!hasDirectShortsLink(card)) {
+        return;
+      }
+
+      /*
+       * Don't process sponsored content.
+       */
+      if (isSponsoredCard(card)) {
+        return;
+      }
+
+      cards.push(card);
     });
 
   return cards;
@@ -1468,6 +1857,22 @@ function processVideos(): void {
   );
 
   protectCurrentVideoTitle();
+  protectPlayerOverlayTitles();
+}
+
+function queueProcessVideos(): void {
+  if (processingQueued) {
+    return;
+  }
+
+  processingQueued = true;
+
+  window.requestAnimationFrame(
+    () => {
+      processingQueued = false;
+      processVideos();
+    }
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1503,13 +1908,19 @@ function removeProtection(): void {
       );
     });
 
+  document
+    .querySelectorAll<HTMLElement>(
+      '.spoiler-shield-short-title-protected'
+    )
+    .forEach((title) => {
+      title.classList.remove(
+        'spoiler-shield-short-title-protected'
+      );
+    });
+
   const titleElement =
     getCurrentWatchTitleElement();
 
-  /*
-   * Restore from OUR stored original rather than
-   * relying on YouTube's title attribute.
-   */
   const originalTitle =
     titleElement
       ?.getAttribute(
@@ -1522,22 +1933,41 @@ function removeProtection(): void {
     titleElement &&
     originalTitle
   ) {
-    titleElement.textContent =
-      originalTitle;
+    setTitleText(
+      titleElement,
+      originalTitle
+    );
 
     titleElement.removeAttribute(
       'data-spoiler-shield-safe-title'
     );
-
-    /*
-     * Keep the original attribute around temporarily
-     * so a re-render doesn't accidentally lose it.
-     */
-    titleElement.setAttribute(
-      'data-spoiler-shield-original-title',
-      originalTitle
-    );
   }
+
+  getPlayerOverlayTitleElements().forEach(
+    (overlayTitle) => {
+      const overlayOriginalTitle =
+        overlayTitle.getAttribute(
+          'data-spoiler-shield-original-title'
+        )?.trim();
+
+      if (overlayOriginalTitle) {
+        setTitleText(
+          overlayTitle,
+          overlayOriginalTitle
+        );
+      }
+
+      overlayTitle.removeAttribute(
+        'data-spoiler-shield-original-title'
+      );
+      overlayTitle.removeAttribute(
+        'data-spoiler-shield-safe-title'
+      );
+      overlayTitle.removeAttribute(
+        'data-spoiler-shield-video-id'
+      );
+    }
+  );
 
   document
     .querySelector<HTMLElement>(
@@ -1548,6 +1978,7 @@ function removeProtection(): void {
     );
 
   originalWatchTitle = '';
+  originalWatchVideoId = '';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1815,12 +2246,88 @@ function showToggleButton(
 }
 
 /* -------------------------------------------------------------------------- */
+/* YouTube navigation                                                         */
+/* -------------------------------------------------------------------------- */
+
+function handleNavigation() {
+  /*
+   * YouTube is an SPA. Clear watch-page title state whenever navigation
+   * happens so a previous video's title cannot leak into the next video.
+   */
+  originalWatchTitle = '';
+  originalWatchVideoId = '';
+
+  if (protectionObserver) {
+    queueProcessVideos();
+  }
+}
+
+/*
+ * YouTube's SPA navigation events.
+ */
+document.addEventListener(
+  'yt-navigate-finish',
+  () => {
+    handleNavigation();
+  }
+);
+
+document.addEventListener(
+  'yt-page-data-updated',
+  () => {
+    handleNavigation();
+  }
+);
+
+/*
+ * History API fallback.
+ */
+const originalPushState =
+  history.pushState;
+
+history.pushState =
+  function (
+    ...args: Parameters<
+      History['pushState']
+    >
+  ) {
+    originalPushState.apply(
+      history,
+      args
+    );
+
+    handleNavigation();
+  };
+
+const originalReplaceState =
+  history.replaceState;
+
+history.replaceState =
+  function (
+    ...args: Parameters<
+      History['replaceState']
+    >
+  ) {
+    originalReplaceState.apply(
+      history,
+      args
+    );
+
+    handleNavigation();
+  };
+
+window.addEventListener(
+  'popstate',
+  handleNavigation
+);
+
+/* -------------------------------------------------------------------------- */
 /* Start / stop                                                               */
 /* -------------------------------------------------------------------------- */
 
 function startProtection() {
   if (protectionObserver) {
-    processVideos();
+    queueProcessVideos();
     return;
   }
 
@@ -1829,7 +2336,7 @@ function startProtection() {
   protectionObserver =
     new MutationObserver(
       () => {
-        processVideos();
+        queueProcessVideos();
       }
     );
 
@@ -1845,6 +2352,8 @@ function startProtection() {
 function stopProtection() {
   protectionObserver?.disconnect();
   protectionObserver = null;
+
+  processingQueued = false;
 
   removeProtection();
 }

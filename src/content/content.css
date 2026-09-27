@@ -92,6 +92,17 @@ ytm-shorts-lockup-view-model-v2.spoiler-shield-card-host
 }
 
 /*
+ * A Short's visible title is outside its thumbnail. The shield overlay
+ * covers the thumbnail, so obscure this separate title node as well.
+ */
+.spoiler-shield-short-title-protected {
+  filter: blur(10px) !important;
+  opacity: 0.35 !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+/*
  * Standard card
  */
 .spoiler-shield-card {

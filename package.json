@@ -1,16 +1,17 @@
 {
   "name": "spoiler-shield",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "A Chrome extension that hides sports spoilers on YouTube.",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "package": "npm run build && cd dist && zip -qrFS ../spoiler-stopper-0.1.0.zip .",
     "preview": "vite preview"
   },
   "devDependencies": {
     "typescript": "~6.0.2",
-    "vite": "^8.1.1",
-    "vite-plugin-static-copy": "^4.1.1"
+    "vite": "^8.1.1"
   }
 }

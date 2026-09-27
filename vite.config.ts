@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig({
   build: {
@@ -13,16 +12,5 @@ export default defineConfig({
         assetFileNames: '[name][extname]'
       }
     }
-  },
-
-  plugins: [
-    viteStaticCopy({
-      targets: [
-        {
-          src: 'public/manifest.json',
-          dest: '.'
-        }
-      ]
-    })
-  ]
+  }
 });
